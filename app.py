@@ -23,9 +23,18 @@ from pathlib import Path
 app = Flask(__name__)
 CORS(app)
 
-# ── Load models at startup ─────────────────────────────────────
-yolo_model     = load_model()
-cnn_lstm_model = load_cnn_lstm_model()
+# ── Load models at startup (graceful in deployment) ──────────
+try:
+    yolo_model = load_model()
+except Exception as e:
+    print(f"[deploy] YOLO model not loaded: {e}")
+    yolo_model = None
+
+try:
+    cnn_lstm_model = load_cnn_lstm_model()
+except Exception as e:
+    print(f"[deploy] CNN+LSTM model not loaded: {e}")
+    cnn_lstm_model = None
 
 BASE_DIR = Path(__file__).parent
 
@@ -83,6 +92,8 @@ def settings():
 # ── Single Image Detection ───────────────────────────────────
 @app.route("/api/detect", methods=["POST"])
 def detect():
+    if yolo_model is None:
+        return jsonify({"error": "YOLO model not loaded (deployment mode)"}), 503
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
@@ -98,6 +109,8 @@ def detect():
 
 @app.route("/api/cnn-detect", methods=["POST"])
 def cnn_detect():
+    if cnn_lstm_model is None:
+        return jsonify({"error": "CNN+LSTM model not loaded (deployment mode)"}), 503
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
@@ -114,10 +127,11 @@ def cnn_detect():
 # ── Full Pipeline ────────────────────────────────────────────
 @app.route("/api/pipeline", methods=["POST"])
 def pipeline():
+    if yolo_model is None:
+        return jsonify({"error": "Models not loaded (deployment mode — UI only)"}), 503
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
-        file = request.files["image"]
         if file.filename == "":
             return jsonify({"error": "No image selected"}), 400
 
@@ -181,6 +195,8 @@ def pipeline():
 # ── Batch Upload ─────────────────────────────────────────────
 @app.route("/api/batch-detect", methods=["POST"])
 def batch_detect():
+    if yolo_model is None:
+        return jsonify({"error": "YOLO model not loaded (deployment mode)"}), 503
     try:
         files = request.files.getlist("images")
         if not files:
@@ -380,8 +396,8 @@ def camera_proxy():
 # ── Health ──────────────────────────────────────────────────
 @app.route("/health")
 def health():
-    yolo_status = "custom trained" if os.path.exists("models/best.pt") else "fallback"
-    cnn_status = "trained" if os.path.exists("models/cnn_lstm_best.pth") else "untrained"
+    yolo_status = "custom trained" if os.path.exists("models/best.pt") else ("loaded" if yolo_model else "deployment (UI mode)")
+    cnn_status = "trained" if os.path.exists("models/cnn_lstm_best.pth") else ("loaded" if cnn_lstm_model else "deployment (UI mode)")
     stats = _db_stats()
     return jsonify({
         "status": "ok",
@@ -495,4 +511,5 @@ if __name__ == "__main__":
     print("  CSV Export: GET /api/history/export")
     print("=" * 55)
     threading.Thread(target=open_browser, daemon=True).start()
-    app.run(debug=False, host="0.0.0.0", port=5000, use_reloader=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
