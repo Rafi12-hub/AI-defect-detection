@@ -72,8 +72,9 @@ def split(items):
 def process_binary():
     print("\nProcessing GOOD and BAD folders …")
     
-    good_imgs = list(GOOD_DIR.glob("*.jpg"))
-    bad_imgs  = list(BAD_DIR.glob("*.jpg"))
+    EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+    good_imgs = [f for f in GOOD_DIR.iterdir() if f.suffix.lower() in EXTS]
+    bad_imgs  = [f for f in BAD_DIR.iterdir() if f.suffix.lower() in EXTS]
     
     # Shuffle right away to get a random mix, then limit to max 500 each
     random.shuffle(good_imgs)

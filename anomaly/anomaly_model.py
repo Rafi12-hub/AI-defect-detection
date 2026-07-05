@@ -61,20 +61,72 @@ def build_autoencoder():
 
 def train_autoencoder():
     print(f"  AI Defect Detection — Autoencoder Training")
+    
+    good_dir = BASE / "data" / "good"
+    if not good_dir.exists():
+        print(f"❌ GOOD image directory not found at {good_dir}")
+        print("   Run 'python reorganize_dataset.py' first.")
+        return
+    
     model = build_autoencoder()
     
-    # In a full run, we would load only 'GOOD' images. For simplicity, we define the dataset logic.
-    # dataset_dir = BASE / "data" / "anomaly" / "val" / "good"  # example structure
-    # train_ds = tf.keras.utils.image_dataset_from_directory(...)
-    print("Autoencoder built and ready for training on good datasets.")
-    print("Run `model.fit(train_ds, ...)` to train.")
+    EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+    good_paths = [str(f) for f in good_dir.iterdir() if f.suffix.lower() in EXTS]
     
-    # Save untrained model for placeholder purposes
+    if not good_paths:
+        print(f"❌ No images found in {good_dir}")
+        return
+    
+    print(f"  Found {len(good_paths)} GOOD images for training")
+    
+    # Load and preprocess images
+    def load_images(paths):
+        images = []
+        for p in paths:
+            img = tf.keras.utils.load_img(p, target_size=(img_size, img_size))
+            img = tf.keras.utils.img_to_array(img) / 255.0
+            images.append(img)
+        return np.array(images)
+    
+    train_images = load_images(good_paths)
+    print(f"  Loaded {train_images.shape[0]} images, shape {train_images.shape[1:]}")
+    
+    # Split 80/20 train/val
+    split = int(0.8 * len(train_images))
+    train_data = train_images[:split]
+    val_data = train_images[split:]
+    
+    print(f"  Train: {len(train_data)}, Val: {len(val_data)}")
+    print(f"  Epochs: {epochs}, Batch: {batch_size}, LR: {learning_rate}")
+    
+    # Callbacks
     model_path = BASE / "models" / "autoencoder.h5"
     if not model_path.parent.exists():
         model_path.parent.mkdir(parents=True)
+    
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True),
+        tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=3),
+    ]
+    
+    history = model.fit(
+        train_data, train_data,
+        validation_data=(val_data, val_data),
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=callbacks,
+        verbose=1,
+    )
+    
     model.save(str(model_path))
-    print(f"✅ Autoencoder template saved to {model_path}")
+    print(f"✅ Trained autoencoder saved to {model_path}")
+    
+    # Save training history
+    import json
+    hist_path = BASE / "models" / "autoencoder_history.json"
+    with open(hist_path, "w") as f:
+        json.dump({k: [float(v) for v in vals] for k, vals in history.history.items()}, f)
+    print(f"✅ Training history saved to {hist_path}")
 
 if __name__ == "__main__":
     train_autoencoder()

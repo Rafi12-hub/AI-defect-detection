@@ -24,7 +24,18 @@ data/sample/*
 
 # Logs
 *.log
+*.txt
+
+# SQLite DB
+data/*.db
+data/*.sqlite
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets / API keys
+config/api_keys.yaml
+config/firebase_credentials.json
+.env
+*.env.local

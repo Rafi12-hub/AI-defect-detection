@@ -35,7 +35,7 @@ from PIL import Image
 from cnn_lstm_model import build_model
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-BASE       = Path(__file__).parent
+BASE       = Path(__file__).parent.parent
 GOOD_DIR   = BASE / "data" / "good"
 BAD_DIR    = BASE / "data" / "bad"
 MODELS_DIR = BASE / "models"

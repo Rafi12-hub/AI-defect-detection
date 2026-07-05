@@ -56,6 +56,17 @@ def load_cnn_lstm_model() -> CNNLSTM:
     return model
 
 
+# ── Global Grad-CAM cache (single instance to avoid hook leaks) ──
+_gcam_instance = None
+
+def _get_gradcam(model: CNNLSTM):
+    """Return a cached GradCAM instance, re-creating only if model changed."""
+    global _gcam_instance
+    if _gcam_instance is None or _gcam_instance.model is not model:
+        _gcam_instance = GradCAM(model)
+    return _gcam_instance
+
+
 # ── Grad-CAM ──────────────────────────────────────────────────────────────────
 class GradCAM:
     """Grad-CAM on the last convolutional layer of the CNN backbone."""
@@ -64,17 +75,24 @@ class GradCAM:
         self.model      = model
         self.gradients  = None
         self.activations = None
+        self._hooks     = []  # track hooks for cleanup
 
         # Hook onto the last conv block in MobileNetV3 features
         target_layer = model.cnn[0][-1]  # last block in backbone.features
-        target_layer.register_forward_hook(self._save_activation)
-        target_layer.register_full_backward_hook(self._save_gradient)
+        self._hooks.append(target_layer.register_forward_hook(self._save_activation))
+        self._hooks.append(target_layer.register_full_backward_hook(self._save_gradient))
 
     def _save_activation(self, module, input, output):
         self.activations = output.detach()
 
     def _save_gradient(self, module, grad_in, grad_out):
         self.gradients = grad_out[0].detach()
+
+    def cleanup(self):
+        """Remove all registered hooks."""
+        for h in self._hooks:
+            h.remove()
+        self._hooks.clear()
 
     def generate(self, img_tensor: torch.Tensor) -> np.ndarray:
         """
@@ -147,8 +165,8 @@ def predict_cnn_lstm(model: CNNLSTM, image_bytes: bytes) -> dict:
     pil_img    = Image.fromarray(img_rgb)
     img_tensor = INFER_TF(pil_img).unsqueeze(0).to(DEVICE)  # [1, C, H, W]
 
-    # Grad-CAM + prediction
-    gcam = GradCAM(model)
+    # Grad-CAM + prediction (reuse cached instance to avoid hook leaks)
+    gcam = _get_gradcam(model)
     with torch.enable_grad():
         cam = gcam.generate(img_tensor.clone())
 

@@ -7,25 +7,35 @@ Inference service for the CNN Autoencoder to detect anomalies.
 import os
 import yaml
 import numpy as np
-import tensorflow as tf
 from pathlib import Path
 import cv2
 
 BASE = Path(__file__).parent.parent
 SETTINGS_FILE = BASE / "config" / "settings.yaml"
 
-with open(SETTINGS_FILE, "r") as f:
-    settings = yaml.safe_load(f)
+try:
+    with open(SETTINGS_FILE, "r") as f:
+        settings = yaml.safe_load(f) or {}
+except (FileNotFoundError, yaml.YAMLError):
+    settings = {}
 
-img_size = settings['training']['yolo']['img_size']
-anomaly_threshold = settings['anomaly']['threshold']
+img_size = 640  # default
+try:
+    img_size = settings['training']['yolo']['img_size']
+except (KeyError, TypeError):
+    pass
+
+anomaly_threshold = (settings.get('anomaly', {})).get('threshold', 0.05)
 autoencoder_path = BASE / "models" / "autoencoder.h5"
 
 # Load the model once at module level, handling fallback
 autoencoder_model = None
 if autoencoder_path.exists():
     try:
+        import tensorflow as tf
         autoencoder_model = tf.keras.models.load_model(str(autoencoder_path), compile=False)
+    except ImportError:
+        print("⚠️ TensorFlow is not installed. Anomaly detection will be disabled.")
     except Exception as e:
         print(f"Failed to load autoencoder model: {e}")
 

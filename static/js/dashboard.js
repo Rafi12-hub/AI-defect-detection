@@ -372,6 +372,104 @@ function renderResults(data) {
      }
 }
 
+// ── Batch Upload ───────────────────────────────────────────
+async function uploadBatch() {
+     const inp = document.getElementById('batchImageInput');
+     if (!inp?.files?.length) { showToast('Select images first', 'fail'); return; }
+
+     const btn = document.getElementById('batchUploadBtn');
+     btn.disabled = true; btn.textContent = '⏳ Uploading…';
+
+     const fd = new FormData();
+     for (const f of inp.files) fd.append('images', f);
+
+     try {
+          const r = await fetch('/api/batch-detect', { method: 'POST', body: fd });
+          if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+          const d = await r.json();
+          const area = document.getElementById('batchResults');
+          area.style.display = 'block';
+          area.innerHTML = `<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">
+    <span class="tag tag-green">${d.passed}/${d.total} Passed</span>
+    <span class="tag tag-red">${d.failed} Failed</span>
+  </div>
+  <div style="max-height:200px;overflow-y:auto;font-size:.82rem">` +
+    d.results.map(r => `<div style="display:flex;align-items:center;gap:.5rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    <span class="status-badge ${r.status === 'PASS' ? 'pass' : 'fail'}" style="font-size:.7rem">${r.status}</span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.filename}</span>
+    <span class="mono text-xs">${(r.confidence*100).toFixed(1)}%</span>
+    <span class="text-muted text-xs">${r.defects} defects</span>
+  </div>`).join('') +
+  '</div>';
+          showToast(`Batch complete: ${d.passed}/${d.total} passed`, d.failed === 0 ? 'pass' : 'fail');
+          loadHistory();
+     } catch (err) {
+          showToast('Batch upload failed: ' + err.message, 'fail');
+     } finally {
+          btn.disabled = false; btn.innerHTML = '📤 Upload & Inspect All';
+     }
+}
+
+// ── PDF Report ────────────────────────────────────────────
+async function downloadPDFReport() {
+     if (!lastReport) { showToast('Run an inspection first', 'fail'); return; }
+     try {
+          const r = await fetch('/api/report/pdf', {
+               method: 'POST', headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify(lastReport)
+          });
+          if (!r.ok) throw new Error('PDF generation failed');
+          const blob = await r.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `report_${Date.now()}.pdf`;
+          a.click();
+          showToast('PDF report downloaded', 'pass');
+     } catch (err) {
+          showToast(err.message, 'fail');
+     }
+}
+
+// ── History CSV ───────────────────────────────────────────
+function downloadCSVExport() {
+     const a = document.createElement('a');
+     a.href = '/api/history/export';
+     a.download = 'inspections.csv';
+     a.click();
+     showToast('CSV exported', 'pass');
+}
+
+// ── Continuous Capture ────────────────────────────────────
+let continuousCaptureInterval = null;
+
+function toggleContinuousCapture() {
+     const btn = document.getElementById('continuousBtn');
+     if (continuousCaptureInterval) {
+          clearInterval(continuousCaptureInterval);
+          continuousCaptureInterval = null;
+          btn.textContent = '🔁 Start Continuous Capture';
+          btn.className = 'btn btn-accent';
+          showToast('Continuous capture stopped', 'info');
+          return;
+     }
+
+     // Check if camera is active
+     const isIp = activeCamTab === 'ipcam';
+     if ((isIp && !document.getElementById('ipCamFeed').src) || (!isIp && !webcamStream)) {
+          showToast('Start a camera feed first', 'fail');
+          return;
+     }
+
+     btn.textContent = '⏹ Stop Continuous Capture';
+     btn.className = 'btn btn-danger';
+
+     continuousCaptureInterval = setInterval(async () => {
+          if (isIp) await captureIpFrame();
+          else await captureFrame();
+     }, 5000);
+     showToast('Continuous capture every 5s started', 'pass');
+}
+
 // ── Session Stats ────────────────────────────────────────────
 function updateSessionStats(data) {
      const isPass = data.status === 'PASS';

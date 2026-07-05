@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Live Camera{% endblock %}
+{% block page_title %}📷 Live Camera{% endblock %}
+
+{% block content %}
+
+<div class="camera-grid fade-up">
+
+     <div class="card" style="padding:0;overflow:hidden">
+          <div class="camera-tabs">
+               <button class="camera-tab active" id="tabWebcam" onclick="switchCamTab('webcam')">🖥️ Webcam</button>
+               <button class="camera-tab" id="tabIpCam" onclick="switchCamTab('ipcam')">🌐 IP Camera</button>
+          </div>
+
+          <div class="camera-preview-wrap" id="cameraPreviewWrap">
+               <video id="webcamFeed" autoplay playsinline muted style="display:none"></video>
+               <img id="ipCamFeed" style="display:none">
+               <div class="camera-placeholder" id="camPlaceholder">
+                    <div class="icon">📷</div>
+                    <div style="font-weight:600;margin-bottom:0.3rem">No Camera Active</div>
+                    <div class="text-muted text-sm">Select a source above to start the live feed</div>
+               </div>
+               <div class="camera-overlay">
+                    <div class="camera-status">
+                         <span class="dot off" id="camStatusDot"></span>
+                         <span id="camStatusText">Idle</span>
+                    </div>
+                    <span class="live-badge" id="liveBadge">OFF</span>
+               </div>
+          </div>
+
+          <div style="padding:1rem">
+               <div id="webcamControls">
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                         <button class="btn btn-primary" id="btnStartWebcam" onclick="startWebcam()">🎥 Start Webcam</button>
+                         <button class="btn btn-secondary" id="btnStopWebcam" onclick="stopWebcam()" disabled>⏹ Stop</button>
+                         <button class="btn btn-accent" id="btnCapture" onclick="captureFrame()" disabled>📸 Capture & Inspect</button>
+                    </div>
+                    <div class="text-muted text-xs" style="margin-top:0.4rem">
+                         Uses browser webcam via <code>getUserMedia</code>. Grant camera permission when prompted.
+                    </div>
+               </div>
+
+               <div id="ipCamControls" style="display:none">
+                    <div class="camera-url-row">
+                         <input type="text" class="settings-input" id="ipCamUrl"
+                              placeholder="rtsp://192.168.1.100:554/stream1 or http://..." value="">
+                         <button class="btn btn-primary" id="btnConnectIp" onclick="connectIpCam()">🔗 Connect</button>
+                         <button class="btn btn-secondary" id="btnDisconnectIp" onclick="disconnectIpCam()" disabled>⏹ Disconnect</button>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                         <button class="btn btn-accent" id="btnCaptureIp" onclick="captureIpFrame()" disabled>📸 Capture & Inspect</button>
+                         <button class="btn btn-secondary" id="btnRefreshIp" onclick="refreshIpFrame()" disabled>🔄 Refresh Frame</button>
+                    </div>
+                    <div class="text-muted text-xs" style="margin-top:0.4rem">
+                         RTSP/HTTP streams are fetched via server-side proxy. Click Capture to analyze.
+                    </div>
+               </div>
+          </div>
+     </div>
+
+     <div class="card" style="display:flex;flex-direction:column;gap:1rem">
+          <div class="card-header">
+               <div>
+                    <div class="card-title">🔍 Inspection Result</div>
+                    <div class="card-subtitle">Captured frame will be analyzed here</div>
+               </div>
+               <span class="card-tag">Live</span>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
+               <div id="camVerdictBadgeWrap"></div>
+               <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div class="ring-wrap">
+                         <svg class="ring-svg" viewBox="0 0 80 80">
+                              <circle class="ring-bg-circle" cx="40" cy="40" r="34" stroke-width="8"/>
+                              <circle class="ring-val-circle" id="camConfRing" cx="40" cy="40" r="34" stroke-width="8"
+                                   stroke="#06B6D4" stroke-dasharray="213" stroke-dashoffset="213"/>
+                         </svg>
+                         <div class="ring-center" id="camConfRingLabel">0%</div>
+                    </div>
+                    <div>
+                         <div class="text-muted text-xs">Confidence</div>
+                         <div class="bold" id="camConfValue">—</div>
+                         <div class="text-muted text-xs" id="camModelUsed">—</div>
+                    </div>
+               </div>
+          </div>
+
+          <div class="result-img-wrap" id="camResultImgWrap" style="display:none">
+               <img id="camResultImage"
+                    style="width:100%;max-height:350px;object-fit:contain;border-radius:var(--radius-sm)"
+                    alt="Captured frame result">
+          </div>
+
+          <div id="camDefectsArea"></div>
+
+          <div class="ai-explanation" id="camAiExplanation" style="display:none">
+               <div class="ai-explanation-header">🧠 AI Analysis</div>
+               <div class="ai-explanation-text" id="camAiExplanationText"></div>
+          </div>
+
+           <div class="empty-state" id="camEmptyState">
+                <div class="empty-icon">📸</div>
+                <div>Capture a frame to inspect</div>
+           </div>
+
+           <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                <button class="btn btn-accent btn-sm" onclick="toggleContinuousCapture()" id="continuousBtn">🔁 Start Continuous Capture</button>
+                <button class="btn btn-secondary btn-sm" onclick="downloadPDFReport()">📄 PDF Report</button>
+                <button class="btn btn-secondary btn-sm" onclick="downloadReport()">⬇️ JSON Report</button>
+           </div>
+      </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let activeCamTab = 'webcam';
+let webcamStream = null;
+let ipPollInterval = null;
+
+function switchCamTab(tab) {
+     activeCamTab = tab;
+     document.getElementById('tabWebcam').classList.toggle('active', tab === 'webcam');
+     document.getElementById('tabIpCam').classList.toggle('active', tab === 'ipcam');
+     document.getElementById('webcamControls').style.display = tab === 'webcam' ? 'block' : 'none';
+     document.getElementById('ipCamControls').style.display = tab === 'ipcam' ? 'block' : 'none';
+     if (tab === 'ipcam') stopWebcam();
+     else stopIpCam();
+     showCamPlaceholder();
+}
+
+// ── Webcam ──────────────────────────────────────────────
+async function startWebcam() {
+     try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+          webcamStream = stream;
+          const video = document.getElementById('webcamFeed');
+          video.srcObject = stream;
+          video.style.display = 'block';
+          document.getElementById('ipCamFeed').style.display = 'none';
+          document.getElementById('camPlaceholder').style.display = 'none';
+          document.getElementById('btnStartWebcam').disabled = true;
+          document.getElementById('btnStopWebcam').disabled = false;
+          document.getElementById('btnCapture').disabled = false;
+          setCamStatus('online', 'Webcam Live');
+          document.getElementById('liveBadge').className = 'live-badge active';
+          document.getElementById('liveBadge').textContent = '● LIVE';
+     } catch (err) {
+          let msg = err.message;
+          if (err.name === 'NotAllowedError') msg = 'Camera permission denied. Check browser settings.';
+          else if (err.name === 'NotFoundError') msg = 'No camera found on this device.';
+          showToast('Webcam error: ' + msg, 'fail');
+     }
+}
+
+function stopWebcam() {
+     if (webcamStream) {
+          webcamStream.getTracks().forEach(t => t.stop());
+          webcamStream = null;
+     }
+     document.getElementById('webcamFeed').style.display = 'none';
+     document.getElementById('btnStartWebcam').disabled = false;
+     document.getElementById('btnStopWebcam').disabled = true;
+     document.getElementById('btnCapture').disabled = true;
+     showCamPlaceholder();
+     setCamStatus('off', 'Idle');
+     document.getElementById('liveBadge').className = 'live-badge';
+     document.getElementById('liveBadge').textContent = 'OFF';
+}
+
+// ── IP Camera (via server proxy) ────────────────────────
+async function connectIpCam() {
+     const url = document.getElementById('ipCamUrl').value.trim();
+     if (!url) { showToast('Enter a camera URL', 'fail'); return; }
+
+     document.getElementById('btnConnectIp').disabled = true;
+     document.getElementById('btnDisconnectIp').disabled = false;
+     document.getElementById('btnCaptureIp').disabled = false;
+     document.getElementById('btnRefreshIp').disabled = false;
+     document.getElementById('webcamFeed').style.display = 'none';
+     document.getElementById('camPlaceholder').style.display = 'none';
+     setCamStatus('online', 'Connecting...');
+     document.getElementById('liveBadge').className = 'live-badge active';
+     document.getElementById('liveBadge').textContent = '● LIVE';
+
+     // Try first frame
+     const ok = await refreshIpFrame();
+     if (!ok) {
+          showToast('Could not connect to IP camera. Check URL.', 'fail');
+          disconnectIpCam();
+          return;
+     }
+
+     // Auto-refresh every 3 seconds
+     if (ipPollInterval) clearInterval(ipPollInterval);
+     ipPollInterval = setInterval(refreshIpFrame, 3000);
+}
+
+function stopIpCam() {
+     if (ipPollInterval) { clearInterval(ipPollInterval); ipPollInterval = null; }
+     document.getElementById('ipCamFeed').style.display = 'none';
+     document.getElementById('ipCamFeed').src = '';
+     document.getElementById('btnConnectIp').disabled = false;
+     document.getElementById('btnDisconnectIp').disabled = true;
+     document.getElementById('btnCaptureIp').disabled = true;
+     document.getElementById('btnRefreshIp').disabled = true;
+     showCamPlaceholder();
+     setCamStatus('off', 'Disconnected');
+     document.getElementById('liveBadge').className = 'live-badge';
+     document.getElementById('liveBadge').textContent = 'OFF';
+}
+
+function disconnectIpCam() { stopIpCam(); }
+
+async function refreshIpFrame() {
+     const url = document.getElementById('ipCamUrl').value.trim();
+     if (!url) return false;
+     try {
+          const resp = await fetch('/api/camera-proxy', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ url: url })
+          });
+          if (!resp.ok) return false;
+          const blob = await resp.blob();
+          const imgUrl = URL.createObjectURL(blob);
+          const img = document.getElementById('ipCamFeed');
+          img.src = imgUrl;
+          img.style.display = 'block';
+          document.getElementById('camPlaceholder').style.display = 'none';
+          setCamStatus('online', 'IP Camera Connected');
+          return true;
+     } catch {
+          return false;
+     }
+}
+
+// ── Capture & Inspect ──────────────────────────────────
+async function captureFrame() {
+     if (activeCamTab !== 'webcam' || !webcamStream) {
+          showToast('Start webcam first', 'fail');
+          return;
+     }
+     const video = document.getElementById('webcamFeed');
+     const canvas = document.createElement('canvas');
+     canvas.width = video.videoWidth || 640;
+     canvas.height = video.videoHeight || 480;
+     const ctx = canvas.getContext('2d');
+     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+     canvas.toBlob(async (blob) => {
+          if (!blob) { showToast('Failed to capture frame', 'fail'); return; }
+          await sendForInspection(blob, canvas.toDataURL('image/jpeg'));
+     }, 'image/jpeg', 0.92);
+}
+
+async function captureIpFrame() {
+     if (activeCamTab !== 'ipcam') return;
+     const url = document.getElementById('ipCamUrl').value.trim();
+     if (!url) { showToast('Enter a camera URL', 'fail'); return; }
+
+     try {
+          const resp = await fetch('/api/camera-proxy', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ url: url })
+          });
+          if (!resp.ok) throw new Error('Camera not reachable');
+          const blob = await resp.blob();
+          const dataUrl = await blobToDataUrl(blob);
+          await sendForInspection(blob, dataUrl);
+     } catch (err) {
+          showToast('Capture failed: ' + err.message, 'fail');
+     }
+}
+
+async function sendForInspection(blob, dataUrl) {
+     const formData = new FormData();
+     formData.append('image', blob, 'capture_' + Date.now() + '.jpg');
+
+     document.getElementById('camEmptyState').style.display = 'none';
+     showToast('Analyzing...', 'info');
+
+     try {
+          const resp = await fetch('/api/pipeline', { method: 'POST', body: formData });
+          if (!resp.ok) throw new Error((await resp.json()).error || resp.statusText);
+          const data = await resp.json();
+          renderCamResult(data, dataUrl);
+     } catch (err) {
+          showToast('Detection failed: ' + err.message, 'fail');
+     }
+}
+
+function blobToDataUrl(blob) {
+     return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+     });
+}
+
+// ── Render Result ──────────────────────────────────────
+function renderCamResult(data, capturedDataUrl) {
+     const isPass = data.status === 'PASS';
+     const conf = data.confidence ?? 0;
+
+     const vw = document.getElementById('camVerdictBadgeWrap');
+     if (vw) {
+          vw.innerHTML = `<div class="verdict-badge ${isPass ? 'pass' : 'fail'}">
+               <div class="verdict-pulse"></div>${isPass ? '✅ PASS' : '❌ FAIL'}</div>`;
+     }
+
+     const circumference = 213;
+     const ring = document.getElementById('camConfRing');
+     const rl = document.getElementById('camConfRingLabel');
+     if (ring) {
+          ring.style.strokeDashoffset = circumference - (circumference * conf);
+          ring.style.stroke = isPass ? '#10B981' : '#EF4444';
+     }
+     if (rl) { rl.textContent = Math.round(conf * 100) + '%'; rl.style.color = isPass ? '#10B981' : '#EF4444'; }
+     document.getElementById('camConfValue').textContent = (conf * 100).toFixed(1) + '%';
+     document.getElementById('camModelUsed').textContent = data.model_info?.type || '—';
+
+     const wrap = document.getElementById('camResultImgWrap');
+     wrap.style.display = 'block';
+     document.getElementById('camResultImage').src = capturedDataUrl;
+
+     const da = document.getElementById('camDefectsArea');
+     const defects = data.defects || [];
+     const discarded = data.discarded_defects || [];
+     if (defects.length || discarded.length) {
+          da.innerHTML = `<div class="defects-grid">` +
+               defects.map(d => `<div class="defect-chip">${d.class} <span style="opacity:.7">${(d.confidence*100).toFixed(0)}%</span></div>`).join('') +
+               discarded.map(d => `<div class="defect-chip fp">${d.class} (FP)</div>`).join('') + '</div>';
+     } else {
+          da.innerHTML = '<div class="text-muted text-sm">No defects detected</div>';
+     }
+
+     const ae = document.getElementById('camAiExplanation');
+     const aet = document.getElementById('camAiExplanationText');
+     if (ae && aet) {
+          const anomaly = data.anomaly_info?.status || 'N/A';
+          const classes = [...new Set(defects.map(d => d.class))];
+          aet.textContent = isPass
+               ? `✅ No defects detected. Anomaly scan: ${anomaly}. Cleared.`
+               : `⚠️ ${defects.length} defect(s): ${classes.join(', ') || 'Unknown'}. Confidence: ${(conf*100).toFixed(1)}%.`;
+          ae.style.display = 'block';
+     }
+
+     showToast(isPass ? '✅ PASS — Component cleared' : '❌ FAIL — Defects detected', isPass ? 'pass' : 'fail');
+     updateSessionStats(data);
+     updateKPIs();
+     updateChartsFromResult(data);
+}
+
+// ── Utilities ──────────────────────────────────────────
+function setCamStatus(dotClass, text) {
+     const dot = document.getElementById('camStatusDot');
+     const txt = document.getElementById('camStatusText');
+     if (dot) dot.className = 'dot ' + dotClass;
+     if (txt) txt.textContent = text;
+}
+
+function showCamPlaceholder() {
+     document.getElementById('camPlaceholder').style.display = 'block';
+     document.getElementById('webcamFeed').style.display = 'none';
+     document.getElementById('ipCamFeed').style.display = 'none';
+}
+</script>
+{% endblock %}

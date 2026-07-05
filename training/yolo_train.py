@@ -56,16 +56,16 @@ def check_dataset():
     return True
 
 def make_abs_yaml():
+    # Read from the source dataset.yaml to preserve correct class mapping
+    with open(YAML, "r") as f:
+        src = yaml.safe_load(f)
     dataset_root = (BASE / "data" / "yolo_dataset").resolve()
     abs_yaml = {
         "path":  str(dataset_root).replace("\\", "/"),
         "train": "images/train",
         "val":   "images/val",
-        "nc":    10,
-        "names": {
-            0: "crack", 1: "blowhole", 2: "break", 3: "fray", 4: "open",
-            5: "short", 6: "mousebite", 7: "spur", 8: "copper", 9: "pin_hole",
-        },
+        "nc":    src.get("nc", 2),
+        "names": src.get("names", {0: "GOOD", 1: "DEFECTIVE"}),
     }
     tmp_yaml = BASE / "dataset_abs.yaml"
     with open(tmp_yaml, "w") as f:

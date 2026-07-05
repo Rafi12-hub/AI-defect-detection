@@ -32,16 +32,23 @@ def create_incremental_dataset_yaml():
     """
     Creates a temporary YAML file specifically for the newly labeled dataset.
     """
-    # Assuming newly_labeled has images and txts together
+    # Read from the source dataset.yaml to preserve correct class mapping
+    YAML = BASE / "dataset.yaml"
+    try:
+        with open(YAML, "r") as f:
+            src = yaml.safe_load(f) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        src = {"nc": 10, "names": {
+            0: "crack", 1: "blowhole", 2: "break", 3: "fray", 4: "open",
+            5: "short", 6: "mousebite", 7: "spur", 8: "copper", 9: "pin_hole",
+        }}
+
     abs_yaml = {
         "path": str(NEWLY_LABELED_DIR).replace("\\", "/"),
         "train": ".",  # Since all images and txts are in the same folder
         "val": ".",    # We use the same for validation in this tiny set
-        "nc": 10,
-        "names": {
-            0: "crack", 1: "blowhole", 2: "break", 3: "fray", 4: "open",
-            5: "short", 6: "mousebite", 7: "spur", 8: "copper", 9: "pin_hole",
-        },
+        "nc": src.get("nc", 10),
+        "names": src.get("names", {0: "GOOD", 1: "DEFECTIVE"}),
     }
     tmp_yaml = BASE / "incremental_dataset.yaml"
     with open(tmp_yaml, "w") as f:

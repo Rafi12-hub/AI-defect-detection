@@ -15,10 +15,18 @@ import base64
 from io import BytesIO
 import os
 
-# ── Class metadata ────────────────────────────────────────────────────────────
+# ── Class metadata (10-class DeepPCB model) ──────────────────────────────────
 CLASS_INFO = {
-    0:  {"name": "GOOD",          "color": (  0, 229, 160), "source": "DeepPCB-Binary"},
-    1:  {"name": "DEFECTIVE",     "color": (255,  61,  90), "source": "DeepPCB-Binary"},
+    0:  {"name": "crack",     "color": (255,  61,  90),  "source": "DeepPCB"},
+    1:  {"name": "blowhole",  "color": (255, 165,   0),  "source": "DeepPCB"},
+    2:  {"name": "break",     "color": (255, 255,   0),  "source": "DeepPCB"},
+    3:  {"name": "fray",      "color": (  0, 255,   0),  "source": "DeepPCB"},
+    4:  {"name": "open",      "color": (  0, 255, 255),  "source": "DeepPCB"},
+    5:  {"name": "short",     "color": (  0, 100, 255),  "source": "DeepPCB"},
+    6:  {"name": "mousebite", "color": (255,   0, 255),  "source": "DeepPCB"},
+    7:  {"name": "spur",      "color": (128,   0, 128),  "source": "DeepPCB"},
+    8:  {"name": "copper",    "color": (139,  69,  19),  "source": "DeepPCB"},
+    9:  {"name": "pin_hole",  "color": (192, 192, 192),  "source": "DeepPCB"},
 }
 
 MODEL_PATH   = "models/best.pt"

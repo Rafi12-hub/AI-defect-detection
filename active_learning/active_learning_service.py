@@ -15,26 +15,30 @@ from pathlib import Path
 BASE = Path(__file__).parent.parent
 SETTINGS_FILE = BASE / "config" / "settings.yaml"
 
-with open(SETTINGS_FILE, "r") as f:
-    settings = yaml.safe_load(f)
+try:
+    with open(SETTINGS_FILE, "r") as f:
+        settings = yaml.safe_load(f) or {}
+except (FileNotFoundError, yaml.YAMLError):
+    settings = {}
 
-CONFIDENCE_THRESHOLD = settings['active_learning']['confidence_threshold']
-TRIGGER_COUNT = settings['active_learning']['retrain_trigger_count']
+al_settings = settings.get('active_learning', {})
+CONFIDENCE_THRESHOLD = al_settings.get('confidence_threshold', 0.80)
+TRIGGER_COUNT = al_settings.get('retrain_trigger_count', 50)
 
 # Output directories
-PENDING_DIR = BASE / settings['active_learning']['pending_dir']
-LABELED_DIR = BASE / settings['active_learning']['labeled_dir']
+PENDING_DIR = BASE / al_settings.get('pending_dir', 'review_pending')
+LABELED_DIR = BASE / al_settings.get('labeled_dir', 'newly_labeled')
 
 # Ensure directories exist
 PENDING_DIR.mkdir(parents=True, exist_ok=True)
 LABELED_DIR.mkdir(parents=True, exist_ok=True)
 
-def handle_detection(image_bytes: bytes, confidence: float, class_id: int):
+def handle_detection(image_bytes: bytes, confidence: float, class_id: int, has_defects: bool = False):
     """
-    Called after YOLO inference. If confidence < threshold,
+    Called after YOLO inference. If confidence < threshold and there ARE defects,
     saves the image to review_pending/.
     """
-    if confidence < CONFIDENCE_THRESHOLD:
+    if has_defects and confidence < CONFIDENCE_THRESHOLD:
         try:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             filename = f"review_pending_{timestamp}_conf{confidence:.2f}_cls{class_id}.jpg"
@@ -52,7 +56,9 @@ def handle_detection(image_bytes: bytes, confidence: float, class_id: int):
 
 def get_pending_images():
     """List images waiting for review."""
-    return [f.name for f in PENDING_DIR.iterdir() if f.is_file()]
+    IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+    return [f.name for f in PENDING_DIR.iterdir()
+            if f.is_file() and f.suffix.lower() in IMAGE_EXTS]
 
 def label_image(filename: str, label_class: str, bounding_boxes: list = None):
     """
@@ -83,5 +89,7 @@ def label_image(filename: str, label_class: str, bounding_boxes: list = None):
 
 def check_retrain_trigger():
     """Check if the number of newly labeled images exceeds the threshold."""
-    labeled_count = len(list(LABELED_DIR.glob("*.jpg")))
+    IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+    labeled_count = len([f for f in LABELED_DIR.iterdir()
+                         if f.is_file() and f.suffix.lower() in IMAGE_EXTS])
     return labeled_count >= TRIGGER_COUNT
